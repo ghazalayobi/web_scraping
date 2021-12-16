@@ -1,0 +1,110 @@
+---
+title: "Web Scraping with R: Assignment - 3"
+author: "Ghazal"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+#Cleaning the environment 
+rm(list = ls())
+
+#Libraries
+
+library(rvest)
+library(data.table)
+library(httr)
+library(xml2)
+library(data.table)
+library(tidyverse)
+library(ggplot2)
+
+```
+
+
+
+```{r}
+scrape_data <- function(url) {
+
+paris_url <- read_html(url)
+
+# Creating relative links
+relative_link <- paris_url %>% html_nodes('.css-1uq0cfn .css-1422juy') %>% html_attr('href') 
+
+# Create links of the website
+links <- paste0('https://www.yelp.ie', relative_link)
+
+# Creating elements
+name <- paris_url %>% html_nodes('.css-1uq0cfn .css-1422juy') %>% html_text()
+
+n_reviews <- paris_url %>% html_nodes('.reviewCount__09f24__tnBk4') %>% html_text()
+
+location <- paris_url %>% html_nodes('.css-1gfe39a .css-1e4fdj9') %>% html_text()
+
+
+# Create Data frame and put everything together 
+df <- data.frame('Name' = name, 'Number_of_Reviews' = n_reviews, 'Location' = location, 'links' = links)
+
+return(df)
+}
+```
+
+```{r}
+# Calling the function
+scrape_data("https://www.yelp.ie/search?find_desc=restaurants&find_near=paris-paris-18")
+
+# Selecting multiple pages
+links <- paste0('https://www.yelp.ie/search?find_desc=restaurants&find_near=paris-paris-18&start=0')
+
+# Apply the function
+list_of_dfs <- lapply(links, scrape_data)
+df2 <- rbindlist(list_of_dfs)
+
+
+```
+
+
+```{r}
+get_each_resturant <- function(url2) {
+  t <- read_html(url2)
+t_list <- list()
+t_list[['title']] <- t %>% html_nodes('.css-1x9iesk') %>% html_text()
+t_list[['pricing']] <- t %>% html_nodes('.css-oyv5ea') %>% html_text()
+t_list[['amenities']] <- t %>% html_nodes('.layout-2-units__09f24__PsGVW') %>% html_text()
+phone <- t %>% html_node('.border-radius--regular__09f24__MLlCO') %>% html_text()
+phone <- sub(".*Phone number", "", phone)
+t_list[['number']] <- substr(phone, 1, 14)
+days <- t %>% html_nodes('.day-of-the-week__09f24__JJea_') %>% html_text()
+hours <- t %>% html_nodes('.no-wrap__09f24__c3plq.css-1h7ysrc') %>% html_text()
+t_list[['address']] <- t %>% html_nodes('.vertical-align-middle__09f24__zU9sE .css-1ccncw') %>% html_text()
+
+for( i in 1:length(days)) {
+  t_list[[ days[i] ]] <- hours[i]
+}
+
+return(t_list)
+}
+
+```
+
+
+```{r}
+url2 <- df2$links
+
+rest_list <- lapply(url2, get_each_resturant)
+
+rest_df <- rbindlist(rest_list, fill = T)
+
+head(rest_df) 
+```
+
+
+
+
+
