@@ -1,0 +1,460 @@
+---
+title: "Racial Disparities in Mortgage Lending"
+author: "Ghazal Ayobi"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+# Libraries
+
+rm(list=ls())
+library(AER)
+library(tidyverse)
+library(dplyr)
+library(lspline)
+library(fixest)
+library(modelsummary)
+library(ggpubr)
+library(reshape2)
+library(kableExtra)
+library(ggplot2)
+library(tidyverse)
+library(haven)
+library(data.table)
+library(huxtable)
+library(pscl)
+library(patchwork)
+library(MASS)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# Source of data is Consumer finance Protection Bureau, HMDA data for New Jersey, 2017. All the records are included. 
+# HMDA DATA SOURCE link: ("https://www.consumerfinance.gov/data-research/hmda/historic-data/?geo=nj&records=all-records&field_descriptions=labels")
+# GitHub Repository link for raw data: ("https://github.com/ghazalayobi/DA2_Coding1_Final_Project/tree/main/raw")
+# In order to run the data cleaning section kindly download the data from Github, as the size of data set is really big it cannot be viewed as raw data in GitHub. Please replace the path below.
+df_raw <- read_csv("hmda_2017_nj_all-records_labels.csv")
+
+# Data Cleaning
+df_raw <- select(df_raw, -as_of_year,	-agency_name, -agency_abbr, -agency_code,	-loan_type,	-property_type_name,	-property_type,	-loan_purpose,	-owner_occupancy_name,	-owner_occupancy,	-preapproval_name,	-preapproval,	-action_taken,	-msamd_name,	-msamd,	-state_name,	-state_abbr,	-state_code,	-county_name,	-county_code,	-census_tract_number,	-applicant_ethnicity_name,	-applicant_ethnicity,	-co_applicant_ethnicity_name,	-co_applicant_ethnicity,	-applicant_race_name_2,	-applicant_race_2,	-applicant_race_name_3,	-applicant_race_3,	-applicant_race_name_4,	-applicant_race_4,	-applicant_race_name_5,	-applicant_race_5,	-co_applicant_race_name_1,	-co_applicant_race_1,	-co_applicant_race_name_2,	-co_applicant_race_2,	-co_applicant_race_name_3,	-co_applicant_race_3,	-co_applicant_race_name_4,	-co_applicant_race_4,	-co_applicant_race_name_5,	-co_applicant_race_5,	-applicant_sex,	-co_applicant_sex_name,	-co_applicant_sex,	-purchaser_type_name,	-purchaser_type,	-denial_reason_name_1,	-denial_reason_1,	-denial_reason_name_2,	-denial_reason_2,	-denial_reason_name_3,	-denial_reason_3,	-rate_spread,	-hoepa_status_name,	-hoepa_status,	-lien_status,	-edit_status_name,	-edit_status,	-sequence_number,	-population,	-minority_population,	-hud_median_family_income,	-tract_to_msamd_income,	-number_of_owner_occupied_units,	-number_of_1_to_4_family_units,	-application_date_indicator)
+
+df_raw <- filter(df_raw, df_raw$loan_type_name == "Conventional")
+df_raw <- filter(df_raw, df_raw$applicant_sex_name != "Information not provided by applicant in mail, Internet, or telephone application")
+df_raw <- filter(df_raw, df_raw$applicant_sex_name != "Not applicable")
+df_raw <- filter(df_raw, df_raw$applicant_race_name_1 != "Information not provided by applicant in mail, Internet, or telephone application")
+df_raw <- filter(df_raw, df_raw$action_taken_name != "Loan purchased by the institution")
+df_raw <- filter(df_raw, df_raw$action_taken_name != "Application withdrawn by applicant")
+df_raw <- select(df_raw, -loan_type_name)
+
+df_raw <- write_csv(df_raw, "nj_hmda.csv")
+rm(df_raw)
+
+# Note: As the original dataset is 219.8 megabytes, thus I uploaded it as a zip file to my GitHub Repository. I performed the above data cleaning based on my research question and made the data set less than 20 mega bytes.After which I was able to read the raw data on GitHub. For Further steps I uploaded the df_raw to my GitHub Repository and directly read it.  
+```
+
+```{r include=FALSE}
+# Loading the clean data from Github
+df <- read_csv("https://raw.githubusercontent.com/ghazalayobi/DA2_Coding1_Final_Project/main/clean/nj_hmda.csv")
+df <- df %>% drop_na()
+
+
+df <- df %>% rename(id = respondent_id, loan_purpose = loan_purpose_name, action = action_taken_name, race = 	
+applicant_race_name_1, race_id = applicant_race_1,gender = applicant_sex_name, lien_status = lien_status_name )
+df <- filter(df, df$race != "Not applicable")
+
+df <- df %>% mutate(loan_approved=as.numeric(action=="Loan originated")) %>% 
+  mutate(white=as.numeric(race=="White")) %>% 
+  mutate(black=as.numeric(race=="Black or African American")) %>% 
+  mutate(asian=as.numeric(race=="Asian")) %>%
+  mutate(hawaiian_alaskan=as.numeric(race=="American Indian or Alaska Native" | race== "Native Hawaiian or Other Pacific Islander")) %>% 
+  mutate(male=as.numeric(gender=="Male"))
+df$home_loan <- ifelse(df$loan_purpose=="Home improvement" | df$loan_purpose =="Home purchase", 1, 0)
+df$collateral <- ifelse(df$lien_status=="Secured by a first lien" | df$loan_purpose =="Secured by a subordinate lien", 1, 0)  
+
+
+df$loan_amount <- df$loan_amount_000s * 1000
+df$income <- df$applicant_income_000s * 1000
+
+df$loan_amount <- as.numeric(df$loan_amount)
+df$income <- as.numeric(df$income)
+df$ln_loan_amount <- log(df$loan_amount)
+df$ln_income <- log(df$income)
+df2 <- df
+df2 <- dplyr::select(df2, -c(loan_amount_000s, race_id, applicant_income_000s))
+df <- filter(df, df$income <= 180000)
+```
+
+# Introduction
+
+Recent incidents in the United States, such as George Floyd's death, have drawn international attention to the country's racial inequalities. This type of segregation has greatly contributed to the racial disparities in a variety of different areas, including financial services; whereas, a mortgage loan is the most popular type of refinancing that has been affected as well. Possessing a home is associated with accumulating more wealth. However, historically, people of color have been denied such mortgages at a higher rate. Thus, The goal of this study is to conduct an empirical analysis of loan approval status on different races in the United States of America. The primary objective of this project is to determine how much people of color are less likely to get a mortgage loan application approved comparing to white citizens, while controlling the same income and loan amounts. To address this topic, I regress the probability of loan approval on different races. Additional confounding variables such as gender, income, loan amount, and collateral are included in the model to support the study. Variables are described as following: 
+
+- Dependent variable: Loan approved is binary variable. It is equal to 1 if loan is approved, 0 otherwise
+- Explanatory variable: Race is categorical variable that contains information about following races : White, Black, Asian, Hawaiian and Alaskan  natives. For each of them I created a binary variable. 
+Confounding Variables:
+- Gender: Male is a binary variable (Male = 1, Female = 0)
+- Income is applicants annual income
+- Loan amount
+- Collateral is a binary variable (Secured by first lien = 1, 0 otherwise)
+
+# Data Cleaning
+
+### Source
+
+The data for this study has been derived from Bureau of Consumer Projection in the United States, 2017. The selected data set is published under Home Mortgage Disclosure Act (HMDA) section which can be found [here](https://www.consumerfinance.gov/data-research/hmda/historic-data/?geo=nj&records=all-records&field_descriptions=labels). To analyze racial inequality in mortgage lending, I selected New Jersey state. The mentioned state is accounted for one of the diverse states containing 50% White, 21% Hispanic or Latino and 12% Black or African American population and it is one of the highly diverse states based on U.S. News [_report_](https://www.usnews.com/news/best-states/slideshows/the-10-most-racially-diverse-states-in-the-us?slide=6). The downloaded financial data for 2017 is the latest available data set regarding this topic. The original data set contains 349563 rows and and 78 columns, which can be found as a zip file in this Github [Repository](https://github.com/ghazalayobi/DA2_Coding1_Final_Project/blob/main/raw/hmda_2017_nj_all-records_labels.csv.zip). HMDA is a complicated data for the purpose of this project, these columns are selected for further analysis: applicant id, loan purpose, loan amount, actions taken for the loan application, applicants' race and gender, loan amount, and lien status.  
+Based on [ _MPA_](https://www.mpamag.com/us/mortgage-industry/guides/the-7-most-popular-types-of-mortgage-loans-for-home-buyers/255499) the most common loan is Fixed-rate mortgage or conventional home loan. Around 90% of home buyers choose this type of loan. Thus, in this project I only consider Conventional mortgage. While working with this dataset the major problem was its size, due to fact that the HMDA data is really big I could not view it on GitHub repository, so I cleaned the data and uploaded on the mentioned repository. 
+
+### Filters
+Information not provided by the applicant about their gender and race is removed from the data set. Moreover, applicants were filtered if they have  withdrawn their loan application. Mortgage loan is the most common loan among lower and middle class families in the United States, and based on [Rutgers University](https://bloustein.rutgers.edu/are-you-middle-class-depends-where-you-live-in-nj/) in the New Jersey the middle class income is below USD 180,000. Thus, in this research I will be focusing on the American lower and middle class loan applicants. Moreover, as part of data cleaning all N/A values have been dropped. 
+
+### Dummmy Variables
+I created a dummy variable if loan is originated, it is called "loan_approved" and if the loan is approved it is equal to 1 and 0 otherwise. In addition, I created more dummy variables for each racial group such as: White, Black, Asian, and Hawaiian - Alaskan natives. I added more binary variables for gender, and created another column called "Male" which is equal to one if the applicant is male and zero if the applicant is a female. The data set also include other valuable information about loan purpose and lien status for the loan application. I created two more dummy variables, first is "home loan" if the loan purpose is home purchase or home improvement then it is equal to one, zero if the loan purpose is refinancing. Collateral plays a vital role in securing a loan, thus, I created a dummy variable called 
+"collateral" which is equal to one if loan applicantion is secured by first lien or subordinate lien and zero otherwise. 
+
+### Tranformation
+Loan amount and applicant income were multiplied by 1000. As both of the variables are right skewed, their logarithms are considered for further analysis. Figure 1 and Figure 2 exhibits distribution of both variables. As a result the sum of observations is `r sum(!is.na(df$action))`. 
+
+# Summary Statisitcs
+The summary statistics table shows that 70% of loans were approved. 80% of loan applicants are white, and men forms more than half of mortgage applicants. 91% of loan applications are secured by lien. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+P95 <- function(x){quantile(x,0.95,na.rm=T)}
+P05 <- function(x){quantile(x,0.05,na.rm=T)}
+datasummary( (`Loan Approved` = loan_approved ) + 
+               (`White` = white) +
+               (`Black` = black) +
+               (`Asian` = asian) +
+               (`Hawaiian & Alaskan` = hawaiian_alaskan) + 
+               (`Male` = male) +
+               (`Home loan` = home_loan) +
+               (`Collateral` = collateral) +
+               (`Income` = income) +
+               (`Loan Amount` = loan_amount) ~
+             Mean + Median + SD + Min + Max + P05 + P95 , 
+             data = df ,
+             title = 'Descriptive statistics') %>% 
+      kable_styling(latex_options = c("HOLD_position","scale_down"))
+```
+
+# Correlation Matrix
+
+A correlation matrix is used to further visualize the association among dependent, explanatory and confounding variables. This matrix helps to predict the evolution of the relationship between variables. Correlation matrix is shown in the Appendix, Figure 3. The correlation matrix shows that if a loan is approved, it is positively associated with log of income, and log of loan amount, collateral and home loan. It can be seen that loan approval status positively correlated with White, on the other hand, it employs negative relationship if race is black or Hawaiian and Alaskan natives. 
+
+# Model
+
+The main hypothesis of this research is that loan approval status is unequal among races. Thus, First, I estimated a simple linear probability model with loan being approved as a dummy variable regressed on each racial group (binary variables). The linear probability model has the following form.
+
+## Model 0
+$$LoanApproved^P=\alpha+\beta( race ) $$
+Table 2 in the Appendix illustrates the probability of loan approval. Column one indicates that we can be 95% confident if someone is white they are 6.8% more likely to get a loan approved and Asians are 3.09% more likely to get it. However, Black or African American, Hawaiian and Alaskan are 18% less likely to get approval for a loan application. For further illustrations, the scatter plots and regression lines that correspond to each regression is shown in the Appendix figures : 4, 5, 6, and 7. However, the scatter plots for each regression line is in corners because both the dependent variable and explanatory variables are dummy variables. The size of the dots are proportional to their frequency in the data. Figure 4 and 6 show that Probability of loan approval for white, same as Asian, have a positive slope. On the contrary, Figures 5 and 7 have negative slopes for Black and Hawaiian-Alaskan natives. To get closer to uncover the effects of racial disparities, loan approval is regressed on all races considering "Asian" as a base category. 
+
+## Model 1
+$$LoanApproved^P=\alpha+\beta_1( hawaiian-alaskan )+\beta_2( black ) +\beta_3( white )$$
+
+To address the problem of predicting probabilities that are less than zero or greater than one, there are two models as alternatives to the linear probability model which are logit and probit models. Pseudo R-squared is used to evaluate goodness of fit of a logistic and probit models. It is similar to the R-squared which measures how much goodness-of-fit is compared to what it would be if we were not using any of the right-hand-side variables for prediction. Table 3 shows the result of Pseudo R-squared for Model 1 for both logit and probit regressions which is 1%. 
+
+
+## Model 2
+
+To further evaluate the regression model, I added two control variables which are "collateral" and "log of income". Correlation Matrix in Appendix, Figure 3, showed that there is positive correlation between Probability of loan approval, log of income and collateral. As it can be seen from the Table 3 that Pseudo R-squared changes from 1% to 4.7% or both logistic and probit regression of Model 2. 
+
+
+$$LoanApproved^P=\alpha+\beta_1( hawaiian-alaskan )+\beta_2( black ) +\beta_3( white ) + \beta_4(collateral)  + \beta_5( log(income)$$
+
+## Model 3
+
+In the Model 3 probability of loan Approved is regressed on Black, White, and Hawaiian or Alaskan. Asian is taken as a base category. Other control variables such as collateral, log of income, gender, loan purpose and log of loan amount are added to the Model. As a result, Table 3 shows that Pseudo R-squared changes to 7.4% for both logit and probit models. Thus, the preferred model is as following.
+
+$$LoanApproved^P=\alpha+\beta_1( hawaiian-alaskan )+\beta_2( black ) +\beta_3( white ) + \beta_4(collateral) + \beta_5( log(income) $$
+$$+\beta_6 (male )+ \beta_7(home-loan)+ \beta_8(log(loan-amount)$$
+
+
+
+
+
+Table 4 shows results of five regression for Model 3, the preferred model: lpm, logit, marginal logit, probit and marginal probit. Column 1, LPM shows that we can be 95% confident that Hawaiian or Alaskans are 9%, and Black are 10% less likely to get approval for a loan application compared to Asians. However, white are 3.8% more likely to get a loan. Moreover, based on LPM regression we can be 95% confident that loan application with a collateral are 27.4 percentage point more likely to be approved. Under this model 1% change in loan applicants' income, makes them 15% more likely to receive a loan approval. The interesting finding is that male are 1% less likely to get their loan approved. Loan amount is not statistically significant. Based on the heteroskedastic robust standard errors, the results are statistically non different from zero. To show that, a two-sided hypothesis test is provided below:
+$$H_0:\beta_1 = \beta_2 = \beta_3  = 0$$
+$$H_A:\beta_1 = \beta_2 = \beta_3 \neq 0$$
+The result in the regression confirm the alternative hypothesis holds. It validates the hypothesis of the study where probability of loan approval is statistically significant and different for each included race in the study. To further check the robustness I ran logit and probit regressions for Model. By looking at the logit and probit estimates for the given model, the probability of loan approval to different races, gender, collateral, log of income, and log of loan amount are same as linear probability model. Columns 2 and 3, the Logit Coefficients are almost four and a half times the size of corresponding logit marginal differences. Furthermore, in the column 4 and 5, probit coefficient is almost three times the size of corresponding probit marginal differences. It is interesting to observe that the two marginal differences, logit and probit, are the same with LPM coefficients in column 1. Thus, I will be interpreting the coefficients of marginals differences of both logit and probit models. Figure 8 visualizes the findings of three models with predicted probabilities of logit and probit on y axis and predicted probability of LPM in the x axis. It can be inferred that logit and probit are very similar to each other and very close to LPM as shown by the S-shaped curve lying close to 45 degree line. As a result, it can be said that across all linear probability model, Marginal logit, and marginal probit, we are 95% confident that Hawaiian and Alaskan natives are 9%, 7.7%, 7.9%, consecutively, less likely to get approved loan application. Blacks are 10%, 8.9% and 9% less likely to receive a loan. However, Whites are 3.8%, 4% and 4% more likely to get a loan. 
+
+# Conclusion
+
+Based on the result of regression analysis, it can be said that the preferred model is Model 3. Supported by increased Pseudo R-squared in the Table 3. Pseudo R-squared significantly increased from 1% to 7.4%. Across all models it is evident that the loan approval is different across races. Thus, the Null hypothesis is invalid. Based on Model 3, by running linear probability model, marginal logit and marginal probit models conveyed a similar result. 
+
+# Appendix
+
+
+```{r echo=FALSE, figures-side, fig.show="hold", out.width="50%"}
+figure1 <- ggplot(data = df2, aes(x = ln_income)) + 
+  geom_density(color = "#3a5e8cFF") + 
+  ggtitle("Figure 1 Income") + 
+  theme_light() +
+  labs(x = "log of Income",y = "Density")
+figure1
+
+figure2 <- ggplot(data = df2, aes(x = ln_loan_amount)) + 
+  geom_density(color = "#3a5e8cFF") + 
+  ggtitle("Figure 2 Loan Amount") + 
+  theme_light() +
+  labs(x = "log of loan amount",y = "Density")
+figure2
+
+```
+
+
+\\
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Correlation matrix
+numeric_df <- keep( df2 , is.numeric )
+cT <- round( cor( numeric_df , use = "complete.obs") , 2 )
+# create a lower triangular matrix
+cT[ upper.tri( cT ) ] <- NA
+# Put it into a tibble format
+melted_cormat <- melt( cT , na.rm = TRUE)
+# Now we can create a heat-map
+ggplot( data = melted_cormat, aes( Var2 , Var1 , fill = value ) )+
+  geom_tile( color = "white" ) +
+  scale_fill_gradient2(low = "#FF8849", high = "#004578", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Correlation") +
+  theme_bw()+ 
+  theme( axis.text.x = element_text(angle = 45, vjust = 1, 
+                                    size = 10, hjust = 1))+
+  labs(y="",x="")+
+  coord_fixed() +
+  ggtitle("Figure 3")
+
+rm( cT , numeric_df , melted_cormat )
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lpmw <- feols( loan_approved ~ white , data = df , vcov = 'hetero' )
+df$predw <- predict( lpmw )
+
+df <- df %>%
+  group_by(white, loan_approved) %>%
+  mutate(weight = n())  %>%
+  mutate(weight_2=(weight/1000))
+
+
+
+gw <- ggplot(data = df) +
+  geom_point(aes(x = white, y = predw), size = 1, shape = 16) +
+  geom_line(aes(x = white, y = predw),  size=0.7) +
+  geom_point(aes(x = white, y = loan_approved, size=weight_2, color = "#3a5e8cFF"), shape = 16, alpha=0.8, show.legend=F, na.rm=TRUE)  +
+  labs(x = "Race : White",y = "Predicted probability of Loan Approved")+
+  coord_cartesian(xlim = c(0, 1), ylim=c(0,1)) +
+  theme_light() + 
+  ggtitle("Figure 4 : White")
+gw
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lpmb <- feols( loan_approved ~ black , data = df , vcov = 'hetero' )
+df$predb <- predict( lpmb )
+
+
+
+df <- df %>%
+  group_by(black, loan_approved) %>%
+  mutate(weight = n())  %>%
+  mutate(weight_2=(weight/1000))
+
+gb <- ggplot(data = df) +
+  geom_point(aes(x = black, y = predb), size = 1, shape = 16) +
+  geom_line(aes(x = black, y = predb),  size=0.7) +
+  geom_point(aes(x = black, y = loan_approved, size=weight_2, color = "#3a5e8cFF"), shape = 16, alpha=0.8, show.legend=F, na.rm=TRUE)  +
+  labs(x = "Race : Black",y = "Predicted probability of Loan Approved")+
+  coord_cartesian(xlim = c(0, 1), ylim=c(0,1)) +
+  theme_light() +
+  ggtitle("Figure 5 : Black")
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lpma <- feols( loan_approved ~ asian , data = df , vcov = 'hetero' )
+df$preda <- predict( lpma )
+
+
+df <- df %>%
+  group_by(asian, loan_approved) %>%
+  mutate(weight = n())  %>%
+  mutate(weight_2=(weight/1000))
+
+ga <- ggplot(data = df) +
+  geom_point(aes(x = asian, y = preda), size = 1, shape = 16) +
+  geom_line(aes(x = asian, y = preda),  size=0.7) +
+  geom_point(aes(x = asian, y = loan_approved, size=weight_2, color = "#3a5e8cFF"), shape = 16, alpha=0.8, show.legend=F, na.rm=TRUE)  +
+  labs(x = "Race : Asian",y = "Predicted probability of Loan Approved")+
+  coord_cartesian(xlim = c(0, 1), ylim=c(0,1)) + 
+  theme_light() +
+  ggtitle("Figure 6 : Asian")
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lpmo <- feols( loan_approved ~ hawaiian_alaskan , data = df , vcov = 'hetero' )
+df$predo <- predict( lpmo )
+
+df <- df %>%
+  group_by(hawaiian_alaskan, loan_approved) %>%
+  mutate(weight = n())  %>%
+  mutate(weight_2=(weight/1000))
+
+
+go <- ggplot(data = df) +
+  geom_point(aes(x =hawaiian_alaskan, y = predo), size = 1, shape = 16) +
+  geom_line(aes(x = hawaiian_alaskan, y = predo),  size=0.7) +
+  geom_point(aes(x = hawaiian_alaskan, y = loan_approved, size=weight_2, color = "#3a5e8cFF"), shape = 16, alpha=0.8, show.legend=F, na.rm=TRUE)  +
+  labs(x = "Race : Hawaiian and Alaskan Native ",y = "Predicted probability of Loan Approved")+
+  coord_cartesian(xlim = c(0, 1), ylim=c(0,1)) + 
+  theme_light() +
+  ggtitle("Figure") +
+  ggtitle("Figure 7 : Hawaiian and Alaskan")
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+summary0 <- kable( etable( lpmw , lpmb , lpma , lpmo ,
+        title = 'Probability of Loan Approval',
+        se.below = T,
+        coefstat = 'se',
+        fitstat = c('n','r2'),
+        se.row = F,
+        depvar = F ) , 
+        col.names = c('(1)','(2)','(3)','(4)'),
+       "latex", booktabs = TRUE,  position = "H",
+       caption = 'Models to uncover relation between Probability of loan approval and races') %>% kable_styling(latex_options = c("hold_position","scale_down"))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary0
+```
+
+
+```{r echo=FALSE, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+
+gw 
+gb
+```
+
+```{r echo=FALSE, fig.show="hold", message=FALSE, warning=FALSE, out.width="50%"}
+ga 
+go
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+lpm1 <- lm(loan_approved ~ hawaiian_alaskan + black + white, data=df)
+logit1 <- glm(loan_approved ~ hawaiian_alaskan + black + white, data=df, family = binomial ( link = "logit"))
+probit1 <- glm(loan_approved ~ hawaiian_alaskan + black + white, data=df, family=binomial(link="probit"))
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+model_formula2 <- formula(loan_approved ~ hawaiian_alaskan + black + white + collateral + ln_income)
+lpm2 <-lm(model_formula2, data=df, vcov = "hetreo")
+logit2 <- glm(model_formula2, data=df, family = binomial ( link = "logit"))
+probit2 <- glm(model_formula2, data=df, family=binomial(link="probit"))
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+# Model 3
+model_formula <- formula(loan_approved ~ hawaiian_alaskan + black + white + collateral + ln_income + ln_loan_amount + male + home_loan)
+
+lpm <-lm(model_formula, data=df, vcov = "hetreo")
+df$pred_lpm <- predict(lpm)
+
+
+# Logit coefficients
+
+logit <- glm(model_formula, data=df, family = binomial ( link = "logit"))
+
+# Predicted probabilities 
+df$pred_logit <- predict.glm(logit, type="response")
+
+
+# Logit marginal differences
+library(mfx)
+logit_marg <- logitmfx(model_formula, data=df, atmean=FALSE, robust = T)
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Probit coefficients
+probit <- glm(model_formula, data=df, family=binomial(link="probit"))
+
+# Predicted probabilities 
+df$pred_probit<- predict.glm(probit, type="response") 
+
+# Probit marginal differences
+probit_marg <- probitmfx(model_formula, data=df, atmean=FALSE, robust = T)
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+glance_custom.glm <- function(x) data.frame(`PseudoR2` = pR2(x)["McFadden"])
+cm <- c('(Intercept)' = 'Constant')
+
+summary1 <- msummary(list("(M1) logit" = logit1, "(M1) Probit" = probit1, "(M2) logit" = logit2, "(M2) Probit" =  probit2, "(M3) logit" = logit,"(M3) Probit" = probit),
+         fmt="%.3f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC',
+         stars=c('*' = .05, '**' = .01),
+         coef_rename = cm, 
+         title = "Logit, Probit with Pseudo R2"
+)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary1
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+cm <- c('(Intercept)' = 'Constant')
+summary2 <- msummary(list("(1)LPM" = lpm, "(2) logit coeffs" = logit, "(3) logit Marg" = logit_marg, "(4) Probit" = probit, "(5) Probit Marg" = probit_marg),
+         fmt="%.3f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|R2 Adj.|AIC|BIC|R2|PseudoR2',
+         stars=c('*' = .05, '**' = .01),
+         coef_rename = cm,
+         title = "The Probability of Loan Approval across races- LPM, Logit, and Probit models"
+)
+
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary2
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+g1 <- ggplot(data = df) +
+  geom_point(aes(x=pred_lpm, y=pred_probit, color="Probit"), size=0.5,  shape=16) +
+  geom_point(aes(x=pred_lpm, y=pred_logit,  color="Logit"), size=0.5,  shape=16) +
+  geom_line(aes(x=pred_lpm, y=pred_lpm,    color="45 Degree line"), size=0.5) +
+  labs(x = "Predicted probability of Highly Rated (LPM)", y="Predicted probability")+
+  scale_color_manual(name = "", values=c("#541352FF", "#3a5e8cFF","#10a53dFF")) +
+  theme_bw() +
+theme(legend.position=c(0.6,0.25),
+        legend.direction = "horizontal",
+        legend.text = element_text(size = 6)) + 
+  ggtitle("Figure 8 : Predicted Probability of LPM, Logit and Probit Models" ) +
+ theme(plot.title = element_text(size = 10), axis.title = element_text(size=8) )  
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+g1
+```
+
