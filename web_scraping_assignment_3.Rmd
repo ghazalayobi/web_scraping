@@ -1,16 +1,33 @@
 ---
 title: "Web Scraping with R: Assignment - 3"
-author: "Ghazal"
+author: "Ghazal Ayobi"
 output:
   prettydoc::html_pretty:
-    theme: hpstr
+    theme: cayman
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r message=FALSE, warning=FALSE, include=FALSE}
+# Paris Restaurants
+
+Paris is a big city and attracts many tourists. Thus, for this purpose I would like to use [**Yelp Website**](https://www.yelp.ie) to compare and contrast the available restaurants prices, number of reviews and opening hours. In order to scrape all the data in the website I undertook the following steps. 
+
+First, I created a function _scrape_data_ to get the name and link of each restaurant and return a data frame of the two mentioned variables. As it can be seen from the website [here](https://www.yelp.ie/search?find_desc=Restaurants&find_loc=Paris%2C+France&start=0) that the last part of URL has a zero and changes 10 digits as we change the page. Thus, end of URL changes by 10 digits when we change the page. I created links vector called _links_ which gets all the restaurants URLs. Next, I applied the function on the created links vector which eventually created a data frame of all restaurants and their respective links. However, while creating all the data for names of restaurants and their respective links, I came across some problems which are as following. First, I tried to scrape all the data from the website from every page using sequence function, however, every time I got an error indicating end of session. Thus, I decided to scrape each page separately and see where the error is coming from. After multiple attempts, I was successfully  scraped the data in a data frame called _df2_ and write as pdf and uploaded the data in my GitHub Repository which can be found [**HERE**](https://github.com/ghazalayobi/web_scraping/blob/main/raw/assignment3/restaurants_all_list.csv). For further visualizations, I will be using the data from github. 
+
+In the second part of the project, I created another function, which gathered each restaurant details which is called _get_each_restaurant_. For this purpose I created an empty list called _t_list_, I used this link to put each node data. This function contains the following information for all restaurant: _Restaurant name number of views, price level, amenities, phone number, address, and opening hours for each day of the week._ While scraping these nodes I came across many issues. For example, in this Yelp website each restaurant has information whether these restaurants are claimed by the owner or not. If restaurant is claimed by the owner it will be written _Claimed_ if it is not claimed by the owner, it will be written as _Unclaimed_. The interesting part is the HTML node for the _pricing level_ contains information about _Unclaimed_ restaurants but not the claimed ones. First, I tried to use _html_node_ to address this issue. However, I was not successful. The _html_node_ function for the specific node only returned information about _Unclaimed_ but not the Price. Thus, I decided to use _html_nodes_ function for the pricing level node. Thus, I further cleaned the data. 
+Second, while scraping the phone number, the html node differed from one restaurant to the other. This reason for this was restaurants _phone number, link and address_ details are added in one table, For some of the restaurants the restaurant link section was missing. Thus, it the HTML nodes change from the restaurants with website link details and without website link details part. Consequently, I scraped the node where I received all of the information about the restaurant website, phone number and address. I used _sub_ function to clean the list, and by this way I extracted the phone number.
+The other problem that I came across was opening hours. In the beginning, I decided to created a _for_ loop to put opening hours of each restaurant for each day of the week. However, after multiple attempts, I received errors which showed that some restaurants have multiple shifts and different hours. For example, one restaurant has one morning and one evening shift.Thus, there were more nodes for the opening and closing hours of some restaurants for one day. For this purpose I dropped the _for_ loop function. As a result of many attempts, I decided to scrape the complete opening hours table and extract hours for each day. The codes are provided in the following section. 
+
+In the third step, I created a vector of all the links from the data frame from the first function where I extracted name and link of the restaurant. I used the _lapply_ function on the _get_each_restaurant_ function and the list of links from the restaurants names data frame. 
+
+While using _get_each_restaurant_ function, I got multiple error and session timeout, as a result I decided to scrape first restaurants details in small numbers. I scraped restaurants in groups of 50, 20 and 10 restaurants. 
+As a result of the above functions, I created a data frame which includes each restaurant name, number of views, pricing level, amenities, phone number, address, and opening hours for each day. As mentioned above, the pricing level had data about unclaimed restaurants, in the data cleaning process, I excluded _Unclaimed_ from price level and created another data frame for all of the restaurants which are not claimed by the owner to a data frame called _unclaimed_res_.
+
+As a result, I created four visualizations which is shown below. Figure 1 indicates that there are many restaurants with second and third level prices. Figure 2 indicates the histogram of number of reviews which shows that more than half of the restaurants have lower reviews which has a right skewed distribution. Figure 3 illustrates the relationship between price level and number of reviews. This indicates that restaurants with two to three price level have more reviews. At last, I wanted to see what the relationship between price level and number of reviews for closed restaurants. Thus, as a result restaurants except first price level and on average with lower reviews are closed on Sundays.
+
+```{r message=FALSE, warning=FALSE}
 
 #Cleaning the environment 
 rm(list = ls())
@@ -28,8 +45,7 @@ library(ggplot2)
 ```
 
 
-
-```{r}
+```{r }
 scrape_data <- function(url) {
 
 paris_url <- read_html(url)
@@ -43,68 +59,178 @@ links <- paste0('https://www.yelp.ie', relative_link)
 # Creating elements
 name <- paris_url %>% html_nodes('.css-1uq0cfn .css-1422juy') %>% html_text()
 
-n_reviews <- paris_url %>% html_nodes('.reviewCount__09f24__tnBk4') %>% html_text()
-
-location <- paris_url %>% html_nodes('.css-1gfe39a .css-1e4fdj9') %>% html_text()
-
-
 # Create Data frame and put everything together 
-df <- data.frame('Name' = name, 'Number_of_Reviews' = n_reviews, 'Location' = location, 'links' = links)
+df <- data.frame('Name' = name, 'links' = links)
 
 return(df)
 }
 ```
 
-```{r}
-# Calling the function
-scrape_data("https://www.yelp.ie/search?find_desc=restaurants&find_near=paris-paris-18")
+
+```{r eval=FALSE, echo=TRUE}
 
 # Selecting multiple pages
-links <- paste0('https://www.yelp.ie/search?find_desc=restaurants&find_near=paris-paris-18&start=0')
+links <- paste0('https://www.yelp.ie/search?find_desc=Restaurants&find_loc=Paris%2C+France&start=', c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230))
 
 # Apply the function
 list_of_dfs <- lapply(links, scrape_data)
-df2 <- rbindlist(list_of_dfs)
-
+df2 <- rbindlist(list_of_dfs, fill = T)
+write_csv(df2, 'restaurants_all_list.csv')
 
 ```
 
 
 ```{r}
-get_each_resturant <- function(url2) {
+get_each_restaurant <- function(url2) {
   t <- read_html(url2)
 t_list <- list()
-t_list[['title']] <- t %>% html_nodes('.css-1x9iesk') %>% html_text()
+t_list[['name']] <- t %>% html_nodes('.css-1x9iesk') %>% html_text()
+reviews <- t %>% html_nodes('.arrange-unit-fill__09f24__CUubG.nowrap__09f24__lBkC2 .css-1yy09vp') %>% html_text()
+t_list[['n_views']] <- sub(" reviews", "", reviews)
 t_list[['pricing']] <- t %>% html_nodes('.css-oyv5ea') %>% html_text()
 t_list[['amenities']] <- t %>% html_nodes('.layout-2-units__09f24__PsGVW') %>% html_text()
 phone <- t %>% html_node('.border-radius--regular__09f24__MLlCO') %>% html_text()
 phone <- sub(".*Phone number", "", phone)
 t_list[['number']] <- substr(phone, 1, 14)
-days <- t %>% html_nodes('.day-of-the-week__09f24__JJea_') %>% html_text()
-hours <- t %>% html_nodes('.no-wrap__09f24__c3plq.css-1h7ysrc') %>% html_text()
 t_list[['address']] <- t %>% html_nodes('.vertical-align-middle__09f24__zU9sE .css-1ccncw') %>% html_text()
-
-for( i in 1:length(days)) {
-  t_list[[ days[i] ]] <- hours[i]
-}
-
+table <- t %>% html_node('.table--simple__09f24__vy16f') %>% html_text()
+t_list[['monday']] <- sub("Tue.*", "", table)
+tuesday <- sub("Wed.*", "", table)
+t_list[['tuesday']] <- sub(".*Tue", "", tuesday)
+wednesday <-  sub("Thu.*", "", table)
+t_list[['wednesday']] <- sub(".*Wed", "", wednesday)
+thursday <- sub("Fri.*", "", table)
+t_list[['thursday']] <- sub(".*Thu", "", thursday)
+friday <- sub("Sat.*", "", table)
+t_list[['friday']] <- sub(".*Fri", "", friday)
+saturday <- sub("Sun.*", "", table)
+t_list[['saturday']] <- sub(".*Sat", "", saturday)
+t_list[['sunday']] <- sub(".*Sun", "", table)
 return(t_list)
 }
 
 ```
 
 
-```{r}
-url2 <- df2$links
+```{r eval=FALSE, echo=TRUE}
 
-rest_list <- lapply(url2, get_each_resturant)
+df3 <- df2[1:50, ]
+df4 <- df2[51:100, ]
+df5 <- df2[101:150, ]
+df6 <- df2[151:170, ]
+df7 <- df2[171:190, ]
+df8 <- df2[191:210, ]
+df9 <- df2[211:230, ]
+df10 <- df2[231:240, ]
+url3 <- df3$links
+url4 <- df4$links
+url5 <- df5$links
+url6 <- df6$links
+url7 <- df7$links
+url8 <- df8$links
+url9 <- df9$links
+url10 <- df10$links
 
+
+rest_list <- lapply(url3, get_each_restaurant)
 rest_df <- rbindlist(rest_list, fill = T)
 
-head(rest_df) 
+rest_list4 <- lapply(url4, get_each_restaurant)
+rest_df4 <- rbindlist(rest_list4, fill = T)
+
+rest_list5 <- lapply(url5, get_each_restaurant)
+rest_df5 <- rbindlist(rest_list5, fill = T)
+
+rest_list6 <- lapply(url6, get_each_restaurant)
+rest_df6 <- rbindlist(rest_list6, fill = T)
+
+rest_list7 <- lapply(url7, get_each_restaurant)
+rest_df7 <- rbindlist(rest_list7, fill = T)
+
+rest_list8 <- lapply(url8, get_each_restaurant)
+rest_df8 <- rbindlist(rest_list8, fill = T)
+
+
+rest_list9 <- lapply(url9, get_each_restaurant)
+rest_df9 <- rbindlist(rest_list9, fill = T)
+
+rest_list10 <- lapply(url10, get_each_restaurant)
+rest_df10 <- rbindlist(rest_list10, fill = T)
+
+restaurant_details <- rbind(rest_list, rest_list4,rest_df5,rest_df6, rest_df7, rest_df8, rest_df9, rest_df10)
+write_csv(restaurant_details, 'each_restaurant_details.csv')
+
 ```
 
 
+```{r message=FALSE, warning=FALSE}
+
+# Uploading data from GitHub
+restaurants_list <- read_csv("https://raw.githubusercontent.com/ghazalayobi/web_scraping/main/raw/assignment3/restaurants_all_list.csv")
+restaurants_details <- read_csv("https://raw.githubusercontent.com/ghazalayobi/web_scraping/main/raw/assignment3/each_restaurant_details.csv")
 
 
+```
+
+```{r message=FALSE, warning=FALSE}
+# Cleaning the data
+
+restaurants_details$n_views <- gsub(" review", "", restaurants_details$n_views)
+
+restaurants_details$monday <- gsub("^.{0,3}", "", restaurants_details$monday)
+
+restaurants_details$n_views <- as.numeric(restaurants_details$n_views)
+restaurants_details$saturday <- gsub("Closed now", "", restaurants_details$saturday)
+restaurants_details$saturday <- gsub("Open now", "", restaurants_details$saturday)
+
+unclaimed_res <- subset(restaurants_details, pricing == "Unclaimed")
+restaurants_details <- subset(restaurants_details, pricing != "Unclaimed")
+restaurants_details$pricing <- as.factor(restaurants_details$pricing)
+
+
+```
+
+
+## Visualizations
+
+```{r message=FALSE, warning=FALSE}
+graph1 <- ggplot(data = restaurants_details, aes(x = pricing )) +
+  geom_bar(fill = "#3a5e8cFF" ) + 
+  labs(x = "Price level",y = "Count")+
+  theme_light() +
+  ggtitle("Figure 1")
+graph1
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+graph2 <- ggplot(data = restaurants_details, aes(x = n_views)) +
+  geom_histogram(fill = "#3a5e8cFF") + 
+  labs(x = "",y = "")+
+  theme_light() +
+  ggtitle("Figure 2 Number of Views Histogram")
+graph2
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
+graph3 <- ggplot(restaurants_details, aes(x = pricing, y = n_views)) +
+  labs(x = "Price level",y = "Number of Views")+
+  geom_point(color = "#3a5e8cFF") +
+  ggtitle("Figure 3")
+
+graph3
+```
+
+
+```{r message=FALSE, warning=FALSE}
+closed <- restaurants_details %>% filter(restaurants_details$sunday == "Closed")
+closed <- as.data.frame(closed)
+graph4 <- ggplot(closed, aes(x = pricing, y = n_views)) +
+  labs(x = "Price level",y = "Number of Views")+
+  geom_point(color = "#3a5e8cFF") 
+graph4
+```
 
