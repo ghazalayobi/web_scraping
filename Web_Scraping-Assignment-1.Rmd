@@ -1,0 +1,117 @@
+---
+title: "Web Scraping with R: Assignment - 1"
+author: "Ghazal"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+---
+
+```{r}
+
+#Cleaning the environment 
+rm(list = ls())
+
+# Loading packages
+library(rvest)
+library(xml2)
+library(data.table)
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+
+# Identifying the link
+books_url <- read_html("https://www.bookdepository.com/bestsellers")
+
+# Writing the link in to a html to identify Specific parts in 'div'.
+write_html(books_url, 'books_html')
+
+# Creating relative links
+relative_link <- books_url %>% html_nodes('.title a') %>% html_attr('href') 
+
+# Create links of the website
+links <- paste0('https://www.bookdepository.com', relative_link)
+
+# Creating elements
+t_titles <- books_url %>% html_nodes('.title') %>% html_text()
+Titles <- gsub("[\n.]","", t_titles)
+
+a_author <- books_url %>% html_nodes('.author') %>% html_text()
+Author <- gsub("[\n.]","", a_author)
+
+Date_Pubished <- books_url %>% html_nodes('.published') %>% html_text()
+
+Format <- books_url %>% html_nodes('.format') %>% html_text()
+
+# Create Data frame and put everything together 
+df <- data.frame('Titles' = Titles, 'Author' = Author, 'Date_Pubished' = Date_Pubished, 'Format' = Format, 'links' = links)
+
+
+```
+
+
+```{r}
+
+# Creating Function 
+
+scrape_data <- function(t_url) {
+
+books_url <- read_html(t_url)
+
+# Creating relative links
+relative_link <- books_url %>% html_nodes('.title a') %>% html_attr('href') 
+
+# Create links of the website
+links <- paste0('https://www.bookdepository.com', relative_link)
+
+
+# Creating elements
+t_titles <- books_url %>% html_nodes('.title') %>% html_text()
+Titles <- gsub("[\n.]","", t_titles)
+
+a_author <- books_url %>% html_nodes('.author') %>% html_text()
+Author <- gsub("[\n.]","", a_author)
+
+
+Date_Pubished <- books_url %>% html_nodes('.published') %>% html_text()
+
+Format <- books_url %>% html_nodes('.format') %>% html_text()
+
+
+
+# Create Data frame and put everything together 
+df <- data.frame('Titles' = Titles, 'Author' = Author, 
+                 'Date_Pubished' = Date_Pubished, 
+                 'Format' = Format, 'links' = links)
+
+return(df)
+}
+
+
+```
+
+
+```{r, echo=TRUE, results='hide'}
+
+# Calling the function
+scrape_data("https://www.bookdepository.com/bestsellers")
+
+# Selecting multiple pages
+links <- paste0('https://www.bookdepository.com/bestsellers?page=', 1:3)
+
+# Apply the function
+list_of_dfs <- lapply(links, scrape_data)
+final_df <- rbindlist(list_of_dfs)
+
+
+```
+
+
+```{r}
+
+head(final_df)
+
+```
+
+
